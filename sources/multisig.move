@@ -12,6 +12,7 @@ module multisig::acl_based_mb {
     const AlreadySigned:u64 =2;
     const NotEnoughSigners:u64 =3;
     const COIN_MISMATCHED:u64 =4;
+    const ALREADY_EXECUTED:u64 =5;
 
     struct Multisig has key,store {
         owners: vector<address>,
@@ -22,6 +23,7 @@ module multisig::acl_based_mb {
         resource_cap: account::SignerCapability
     }
     struct Transaction has key {
+        did_execute: bool,
         coin_address: address,
         amount: u64,
         signers: vector<bool>,
@@ -73,7 +75,7 @@ module multisig::acl_based_mb {
         let multisig_signer_from_cap = account::create_signer_with_capability(&multisig_vault_data.resource_cap);
         coin::register<CoinType>(&multisig_signer_from_cap);
         let coin_address=coin_address<CoinType>();
-        move_to<Transaction>(&transaction_signer_from_cap, Transaction{coin_address,receiver,amount,signers,multisig,resource_cap:transaction_cap});
+        move_to<Transaction>(&transaction_signer_from_cap, Transaction{did_execute:false,coin_address,receiver,amount,signers,multisig,resource_cap:transaction_cap});
     }
     public entry fun approve_transaction(
         account: &signer,
@@ -105,6 +107,7 @@ module multisig::acl_based_mb {
         let account_addr = signer::address_of(account);
         let multisig_data = borrow_global_mut<Multisig>(multisig);
         let transaction_data = borrow_global_mut<Transaction>(transaction);
+        assert!(transaction_data.did_execute==false,ALREADY_EXECUTED);
         let owners = multisig_data.owners;
         let signers = transaction_data.signers;
         let (is_owner,_index) = vector::index_of(&owners,&account_addr);
@@ -125,6 +128,7 @@ module multisig::acl_based_mb {
             let coin_address=coin_address<CoinType>();
             assert!(coin_address==transaction_data.coin_address,COIN_MISMATCHED);
             coin::transfer<CoinType>(&multisig_signer_from_cap, transaction_data.receiver, transaction_data.amount);
+            transaction_data.did_execute =true
         }
         else{
                 abort error::invalid_argument(NotEnoughSigners)
@@ -176,6 +180,5 @@ module multisig::acl_based_mb {
         aptos_framework::managed_coin::register<MokshyaMoney>(&receiver);
         
         execute_transaction<MokshyaMoney>(&ownerB,multisig_data,transaction_data);
-        
     }
 }
